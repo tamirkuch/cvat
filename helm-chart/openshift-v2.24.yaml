@@ -1,0 +1,179 @@
+# OpenShift restricted-v2 overlay for CVAT 2.24.0.
+# PVC access still depends on the cluster's storage driver honoring OpenShift's
+# assigned supplemental group; see openshift/README.md before installing.
+cvat:
+  backend:
+    image: image-registry.openshift-image-registry.svc:5000/tamirk-crt-dev/cvat-server-openshift
+    tag: v2.24.0-r2
+    initializer:
+      # The upstream initializer generates secret_key.py, but does not mount
+      # the backend PVC. Share its keys subPath so the generated key persists
+      # and the application containers can read the same key.
+      additionalVolumeMounts:
+        - name: cvat-backend-data
+          mountPath: /home/django/data
+          subPath: data
+        - name: cvat-backend-data
+          mountPath: /home/django/keys
+          subPath: keys
+        - name: cvat-backend-data
+          mountPath: /home/django/logs
+          subPath: logs
+        - name: cvat-backend-data
+          mountPath: /home/django/models
+          subPath: models
+      additionalVolumes:
+        - name: cvat-backend-data
+          persistentVolumeClaim:
+            claimName: cvat-backend-data
+    worker:
+      # Several upstream worker templates omit the keys mount even though
+      # their Django liveness probes load the secret-key module.
+      chunks:
+        additionalVolumeMounts:
+          - name: cvat-backend-data
+            mountPath: /home/django/keys
+            subPath: keys
+      analyticsreports:
+        additionalVolumeMounts:
+          - name: cvat-backend-data
+            mountPath: /home/django/data
+            subPath: data
+          - name: cvat-backend-data
+            mountPath: /home/django/keys
+            subPath: keys
+          - name: cvat-backend-data
+            mountPath: /home/django/logs
+            subPath: logs
+        additionalVolumes:
+          - name: cvat-backend-data
+            persistentVolumeClaim:
+              claimName: cvat-backend-data
+      qualityreports:
+        additionalVolumeMounts:
+          - name: cvat-backend-data
+            mountPath: /home/django/data
+            subPath: data
+          - name: cvat-backend-data
+            mountPath: /home/django/keys
+            subPath: keys
+          - name: cvat-backend-data
+            mountPath: /home/django/logs
+            subPath: logs
+        additionalVolumes:
+          - name: cvat-backend-data
+            persistentVolumeClaim:
+              claimName: cvat-backend-data
+      webhooks:
+        additionalVolumeMounts:
+          - name: cvat-backend-data
+            mountPath: /home/django/data
+            subPath: data
+          - name: cvat-backend-data
+            mountPath: /home/django/keys
+            subPath: keys
+          - name: cvat-backend-data
+            mountPath: /home/django/logs
+            subPath: logs
+        additionalVolumes:
+          - name: cvat-backend-data
+            persistentVolumeClaim:
+              claimName: cvat-backend-data
+    permissionFix:
+      # The upstream init container runs chmod -R 777 and is incompatible with
+      # arbitrary UID execution under restricted-v2.
+      enabled: false
+    defaultStorage:
+      enabled: true
+      storageClassName: efs-sc
+      accessModes:
+        - ReadWriteMany
+      size: 20Gi
+  frontend:
+    image: image-registry.openshift-image-registry.svc:5000/tamirk-crt-dev/cvat-ui-openshift
+    tag: v2.24.0
+    service:
+      ports:
+        - port: 80
+          targetPort: 8080
+          protocol: TCP
+          name: http
+    readinessProbe:
+      enabled: false
+    livenessProbe:
+      enabled: false
+  kvrocks:
+    enabled: true
+    image: image-registry.openshift-image-registry.svc:5000/tamirk-crt-dev/cvat-kvrocks-openshift
+    tag: v2.7.0-r3
+    defaultStorage:
+      enabled: true
+      accessModes:
+        - ReadWriteOnce
+      size: 5Gi
+    secret:
+      create: false
+      name: cvat-kvrocks-secret
+    existingSecret: cvat-kvrocks-secret
+
+# Analytics is optional for core annotation workflows. Disabling it removes
+# ClickHouse, Vector and Grafana, which have additional image/volume constraints.
+analytics:
+  enabled: false
+clickhouse:
+  enabled: false
+
+# Let OpenShift SCC inject an allowed UID and group. Do not pin runAsUser,
+# runAsGroup or fsGroup: values must come from the namespace's allocated range.
+postgresql:
+  enabled: true
+  image:
+    registry: public.ecr.aws
+    repository: b8u7h5e8/postgresql
+    tag: 15.2.0-debian-11-r0
+  primary:
+    podSecurityContext:
+      enabled: false
+    containerSecurityContext:
+      enabled: false
+  readReplicas:
+    podSecurityContext:
+      enabled: false
+    containerSecurityContext:
+      enabled: false
+  volumePermissions:
+    enabled: false
+  secret:
+    create: false
+    name: cvat-postgres-secret
+  auth:
+    existingSecret: cvat-postgres-secret
+    username: cvat
+    database: cvat
+
+redis:
+  # The tagged Bitnami Redis 18.5 and PostgreSQL 12.1 charts bundle different
+  # globally named common helpers. Keep PostgreSQL as the chart dependency and
+  # deploy Redis via the companion OpenShift manifest instead.
+  enabled: false
+  external:
+    host: cvat-redis
+  architecture: standalone
+  master:
+    podSecurityContext:
+      enabled: false
+    containerSecurityContext:
+      enabled: false
+  secret:
+    create: false
+    name: cvat-redis-secret
+  auth:
+    existingSecret: cvat-redis-secret
+    existingSecretPasswordKey: password
+
+ingress:
+  enabled: false
+traefik:
+  enabled: false
+nuclio:
+  enabled: false

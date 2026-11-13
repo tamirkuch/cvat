@@ -1,0 +1,15 @@
+# Leave host unset so OpenShift assigns a hostname from the cluster's apps domain.
+# The frontend nginx config proxies backend paths to the backend Service.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: cvat
+spec:
+  to:
+    kind: Service
+    name: cvat-frontend-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
